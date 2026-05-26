@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Krabbelgruppe Casino</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- 1. Header -->
+    <header>
+        <div class="user-info">
+            <div class="user-name" id="lobby-username" onclick="openModal('login-view')">
+                <span id="crown-icon" style="display:none;">👑</span> <span id="player-name">🔑 Einloggen / Registrieren</span>
+            </div>
+            <div class="user-coins" id="coin-bar" style="display: none;">💰 <span id="player-coins">0</span> Coins (<span id="player-title">Frischling</span>)</div>
+        </div>
+        <button class="btn-create" onclick="openCreateTableModal()">Neu ➕</button>
+    </header>
+
+    <!-- 2. Hauptinhalt -->
+    <main>
+        <section>
+            <h2>Spiele</h2>
+            <div class="games-grid">
+                <div class="game-card">♣️ Mau-Mau</div>
+                <div class="game-card">🎲 Kniffel</div>
+                <div class="game-card">🌊 Schwimmen</div>
+                <div class="game-card">🃏 Poker</div>
+            </div>
+        </section>
+        <!-- NEU: Turnier-Sektion -->
+        <section>
+            <h2 style="color: #ffc107;">🏆 Aktive Turniere</h2>
+            <div class="tournament-list" id="active-tournaments">
+                <div style="color:#aaa; font-size:0.9rem;">Gerade keine Turniere offen...</div>
+            </div>
+        </section>
+        <section>
+            <h2>Offene Tische</h2>
+            <div class="table-list" id="active-tables">
+                <!-- Wird dynamisch durch JS befüllt -->
+            </div>
+        </section>
+    </main>
+
+    <!-- 3. Live-Chat -->
+    <div class="chat-container">
+        <div class="chat-messages" id="chat-box">
+            <div style="color: #ffc107;"><strong>🤖 Kommentator:</strong> Willkommen in der Krabbelgruppe! Wer zockt heute Axel das Fell über die Ohren?</div>
+        </div>
+        <div class="chat-input-area">
+            <button class="btn-beg" onclick="submitBeg()">Betteln 🙏</button>
+            <input type="text" class="chat-input" id="chat-msg" placeholder="Nachricht..." onkeydown="if(event.key === 'Enter') sendChatMessage()">
+            <button class="btn-send" onclick="sendChatMessage()">Senden</button>
+        </div>
+    </div>
+
+    <!-- 4. Pop-up Fenster (Modal) -->
+    <div class="modal" id="auth-modal">
+        <div class="modal-content">
+            
+            <!-- ANSICHT 0: TISCH ERSTELLEN -->
+            <div id="create-table-view" style="display: none;">
+                <div class="modal-header">
+                    <span>Neuen Spieltisch eröffnen</span>
+                    <button class="btn-close-modal" onclick="closeModal()">×</button>
+                </div>
+                <div class="form-group" style="margin-top:10px;">
+                    <label>Spiel auswählen</label>
+                    <select id="create-game-type">
+                        <option value="Mau-Mau">♣️ Mau-Mau</option>
+                        <option value="Kniffel">🎲 Kniffel</option>
+                        <option value="Schwimmen">🌊 Schwimmen</option>
+                        <option value="Poker">🃏 Poker</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Einsatz (1 - 5 Coins)</label>
+                    <input type="number" id="create-bet" min="1" max="5" value="1">
+                </div>
+                <button class="btn-submit" style="background:#28a745;" onclick="submitCreateTable()">Tisch erstellen & Einladung generieren</button>
+                
+                <div id="whatsapp-share-area" style="display:none; margin-top:15px; text-align:center;">
+                    <p style="font-size:0.85rem; color:#aaa; margin-bottom:8px;">Tisch bereit! Lade deine Freunde ein:</p>
+                    <a id="whatsapp-btn" href="#" target="_blank" style="background:#25D366; color:white; padding:10px 15px; border-radius:8px; text-decoration:none; font-weight:bold; display:inline-block;">📱 Über WhatsApp einladen</a>
+                </div>
+   		  <div class="form-group">
+                    <label>Spieleranzahl (2 - 8)</label>
+                    <select id="create-max-players">
+                        <option value="2">2 Spieler (Duell)</option>
+                        <option value="3">3 Spieler</option>
+                        <option value="4" selected>4 Spieler (Standard)</option>
+                        <option value="5">5 Spieler</option>
+                        <option value="6">6 Spieler</option>
+                        <option value="7">7 Spieler</option>
+                        <option value="8">8 Spieler</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- ANSICHT 1: LOGIN -->
+            <div id="login-view" style="display: none;">
+                <div class="modal-header">
+                    <span>Anmelden</span>
+                    <button class="btn-close-modal" onclick="closeModal()">×</button>
+                </div>
+                <div class="form-group" style="margin-top:10px;">
+                    <label>Benutzername</label>
+                    <input type="text" id="login-user" placeholder="Dein Name">
+                </div>
+                <div class="form-group">
+                    <label>Passwort</label>
+                    <input type="password" id="login-pass" placeholder="••••••••">
+                </div>
+                <button class="btn-submit" onclick="submitLogin()">Einloggen</button>
+                <div class="modal-switch" onclick="switchView('register-view')">Noch kein Konto? Registrieren</div>
+                <div class="modal-switch" onclick="switchView('forgot-view')" style="color:#aaa; margin-top:10px;">Passwort vergessen?</div>
+            </div>
+
+            <!-- ANSICHT 2: REGISTRIERUNG -->
+            <div id="register-view" style="display: none;">
+                <div class="modal-header">
+                    <span>Registrieren (Du erhältst 100 Coins!)</span>
+                    <button class="btn-close-modal" onclick="closeModal()">×</button>
+                </div>
+                <div class="form-group" style="margin-top:10px;">
+                    <label>Wunsch-Benutzername</label>
+                    <input type="text" id="reg-user" placeholder="z.B. ZockerKönig">
+                </div>
+                <div class="form-group">
+                    <label>Passwort</label>
+                    <input type="password" id="reg-pass" placeholder="••••••••">
+                </div>
+                <div class="form-group">
+                    <label>Geheime Sicherheitsfrage</label>
+                    <select id="reg-question">
+                        <option value="Wie heißt dein Haustier?">Wie heißt dein Haustier?</option>
+                        <option value="Wie lautet der Geburtsname deiner Mutter?">Wie lautet der Geburtsname deiner Mutter?</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Deine geheime Antwort</label>
+                    <input type="text" id="reg-answer" placeholder="Antwort gut merken!">
+                </div>
+                <button class="btn-submit" style="background:#28a745;" onclick="submitRegister()">Konto erstellen 🎉</button>
+                <div class="modal-switch" onclick="switchView('login-view')">Zurück zum Login</div>
+            </div>
+
+            <!-- ANSICHT 3: PASSWORT VERGESSEN -->
+            <div id="forgot-view" style="display: none;">
+                <div class="modal-header">
+                    <span>Passwort zurücksetzen</span>
+                    <button class="btn-close-modal" onclick="closeModal()">×</button>
+                </div>
+                <div class="form-group" style="margin-top:10px;">
+                    <label>Dein Benutzername</label>
+                    <input type="text" id="forgot-user" placeholder="Dein Name">
+                </div>
+                <div class="form-group">
+                    <label>Geheime Sicherheitsfrage</label>
+                    <select id="forgot-question">
+                        <option value="Wie heißt dein Haustier?">Wie heißt dein Haustier?</option>
+                        <option value="Wie lautet der Geburtsname deiner Mutter?">Wie lautet der Geburtsname deiner Mutter?</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Deine geheime Antwort</label>
+                    <input type="text" id="forgot-answer" placeholder="Antwort eingeben">
+                </div>
+                <div class="form-group">
+                    <label>Neues Passwort</label>
+                    <input type="password" id="forgot-newpass" placeholder="Neues Passwort">
+                </div>
+                <button class="btn-submit" style="background:#ffc107; color:black;" onclick="submitForgot()">Passwort ändern</button>
+                <div class="modal-switch" onclick="switchView('login-view')">Zurück zum Login</div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="index.js"></script>
+</body>
+</html>
