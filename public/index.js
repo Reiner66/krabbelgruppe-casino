@@ -35,14 +35,11 @@ function initWebSocket() {
             document.getElementById('whatsapp-share-area').style.display = 'block';
         }
 
-        // Live-Tischliste empfangen und ins HTML zeichnen
         // Live-Tischliste UND Turniere empfangen und ins HTML zeichnen
         if (data.type === 'table_list') {
-            window.activeTablesData = data.tables; // Tische global speichern
+            window.activeTablesData = data.tables;
             
-            // ==========================================
-            // 1. NEU: TURNIER-BEREICH LIVE AKTUALISIEREN
-            // ==========================================
+            // TURNIER-BEREICH LIVE AKTUALISIEREN
             const tournamentContainer = document.getElementById('active-tournaments');
             if (tournamentContainer) {
                 tournamentContainer.innerHTML = '';
@@ -54,6 +51,19 @@ function initWebSocket() {
                         const iAmInTourney = currentUser && tourney.players.includes(currentUser.username);
                         const card = document.createElement('div');
                         card.className = 'tournament-card';
+
+                        let tourneyButton = '';
+                        if (!currentUser) {
+                            // Nicht eingeloggt: Button zeigt Hinweis
+                            tourneyButton = `<button class="btn-tournament" onclick="alert('Bitte zuerst einloggen!')">Anmelden</button>`;
+                        } else if (iAmInTourney) {
+                            // Bereits angemeldet
+                            tourneyButton = `<span style="color:#28a745; font-weight:bold; font-size:0.85rem; padding-right:10px;">Angemeldet ✔</span>`;
+                        } else {
+                            // Eingeloggt und noch nicht dabei
+                            tourneyButton = `<button class="btn-tournament" onclick="joinTournament(${tourney.id})">Anmelden</button>`;
+                        }
+
                         card.innerHTML = `
                             <div>
                                 <strong style="color: #ffc107;">🏆 Mega-Turnier #${tourney.id} - ${tourney.game_type}</strong><br>
@@ -61,10 +71,7 @@ function initWebSocket() {
                                 <small style="color:#aaa;">Teilnehmer: ${tourney.players.length} Spieler</small>
                             </div>
                             <div class="table-actions">
-                                ${iAmInTourney ? 
-                                    `<span style="color:#28a745; font-weight:bold; font-size:0.85rem; padding-right:10px;">Angemeldet ✔</span>` : 
-                                    `<button class="btn-tournament" onclick="joinTournament(${tourney.id})">Anmelden</button>`
-                                }
+                                ${tourneyButton}
                             </div>
                         `;
                         tournamentContainer.appendChild(card);
@@ -72,9 +79,7 @@ function initWebSocket() {
                 }
             }
 
-            // ==========================================
-            // 2. DEIN CODE: SPIELTISCH-BEREICH AKTUALISIEREN
-            // ==========================================
+            // SPIELTISCH-BEREICH AKTUALISIEREN
             const tableContainer = document.getElementById('active-tables');
             tableContainer.innerHTML = '';
 
@@ -93,7 +98,6 @@ function initWebSocket() {
                     const card = document.createElement('div');
                     card.className = 'table-card';
                     
-                    // Schaltet die passenden Buttons frei (Boss sieht Starten, Spieler sieht Verlassen)
                     let actionButtons = '';
                     if (iAmBoss) {
                         actionButtons = `
@@ -263,12 +267,26 @@ function submitCreateTable() {
     }));
 }
 
-// TISCH VERLASSEN LOGIK
+// TISCH VERLASSEN
 function leaveTable(tableId) {
     if (!currentUser || !socket) return;
     socket.send(JSON.stringify({
         type: 'leave_table',
         tableId: tableId,
+        username: currentUser.username
+    }));
+}
+
+// TURNIER BEITRETEN
+function joinTournament(tournamentId) {
+    if (!currentUser || !socket) {
+        alert('Bitte zuerst einloggen!');
+        openModal('login-view');
+        return;
+    }
+    socket.send(JSON.stringify({
+        type: 'join_tournament',
+        tournamentId: tournamentId,
         username: currentUser.username
     }));
 }
