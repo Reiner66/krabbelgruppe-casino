@@ -74,7 +74,6 @@ app.post('/api/login', (req, res) => {
         const validPassword = await bcrypt.compare(password, user.password_hash);
         if (!validPassword) return res.status(400).json({ error: 'Falsche Daten!' });
 
-        // NEU: Wenn sich der Name "Reiner" einloggt, wird er permanent zum Admin gemacht
         if (user.username.toLowerCase() === 'reiner' && user.role !== 'admin') {
             db.run(`UPDATE users SET role = 'admin' WHERE id = ?`, [user.id]);
             user.role = 'admin';
@@ -88,7 +87,7 @@ app.post('/api/login', (req, res) => {
                 title: user.title, 
                 name_color: user.name_color, 
                 has_crown: user.has_crown,
-                role: user.role // NEU: Übergibt 'admin', 'moderator' oder 'player' an die Lobby
+                role: user.role
             }
         });
     });
@@ -123,12 +122,11 @@ wss.on('connection', (ws) => {
             if (data.type === 'chat_message') {
                 const msg = data.message.trim();
 
-                // Erst die Rolle des Schreibers aus der DB holen für die Rechteprüfung
                 db.get(`SELECT role FROM users WHERE username = ?`, [data.username], (err, row) => {
                     if (err || !row) return;
-                    const uRole = row.role; // 'admin', 'moderator' oder 'player'
+                    const uRole = row.role;
 
-                    // BEFEHL A: TURNIER ANKÜNDIGEN (Darf Admin und Moderator!)
+                    // BEFEHL A: TURNIER ANKÜNDIGEN
                     if (msg.startsWith('!turnier')) {
                         if (uRole !== 'admin' && uRole !== 'moderator') {
                             ws.send(JSON.stringify({ type: 'chat_broadcast', username: '🤖 Kommentator', message: `Schluss mit den Mucken, ${data.username}! Du bist kein Turnierleiter!`, color: '#ffc107' }));
@@ -139,11 +137,9 @@ wss.on('connection', (ws) => {
                         const gameType = parts[1] || 'Mau-Mau';
                         
                         let betAmount;
-                        // Wenn kein Einsatz angegeben wurde, würfle einen Wert zwischen 5 und 10 aus
                         if (!parts[2]) {
                             betAmount = Math.floor(Math.random() * (10 - 5 + 1)) + 5;
                         } else {
-                            // Wenn ein Einsatz angegeben wurde, kappe ihn hart auf den Bereich 5 bis 10
                             betAmount = parseInt(parts[2]) || 10;
                             if (betAmount < 5) betAmount = 5;
                             if (betAmount > 10) betAmount = 10;
@@ -158,7 +154,7 @@ wss.on('connection', (ws) => {
                             id: Math.floor(Math.random() * 900) + 100,
                             game_type: gameType,
                             bet_amount: betAmount,
-                            boss: data.username, // Der Ersteller ist der Boss dieser Instanz
+                            boss: data.username,
                             status: 'Anmeldung',
                             players: []
                         };
@@ -177,7 +173,7 @@ wss.on('connection', (ws) => {
                         return;
                     }
 
-                    // BEFEHL B: TURNIER ECHT STARTEN (Nur der jeweilige Boss oder Admin!)
+                    // BEFEHL B: TURNIER STARTEN
                     if (msg === '!start') {
                         if (!activeTournament) return;
                         if (activeTournament.boss !== data.username && uRole !== 'admin') {
@@ -191,12 +187,10 @@ wss.on('connection', (ws) => {
 
                         activeTournament.status = 'Aktiv';
                         
-                        // Erste Runde generieren und Freilos prüfen
                         const { matches, byePlayer } = generateFirstRound(activeTournament.players);
                         activeTournament.currentMatches = matches;
                         activeTournament.byePlayersNextRound = byePlayer ? [byePlayer] : [];
 
-                        // Gewinnverteilung exakt berechnen (aufgerundet)
                         const payouts = calculateTournamentPayout(activeTournament.players.length, activeTournament.bet_amount);
                         activeTournament.payouts = payouts;
 
@@ -233,7 +227,55 @@ wss.on('connection', (ws) => {
                         return;
                     }
 
-                    // BEFEHL C: NEUEN TURNIERLEITER ERNENNEN (Nur der Admin!)
+                    // BEFEHL C: TURNIER ABSAGEN (Admin, Moderator oder Boss!)
+                    if (msg === '!absagen') {
+                        if (!activeTournament) {
+                            ws.send(JSON.stringify({ type: 'chat_broadcast', username: '🤖 Kommentator', message: `Es gibt gerade kein aktives Turnier zum Absagen!`, color: '#ffc107' }));
+                            return;
+                        }
+                        if (activeTournament.boss !== data.username && uRole !== 'admin' && uRole !== 'moderator') {
+                            ws.send(JSON.stringify({ type: 'chat_broadcast', username: '🤖 Kommentator', message: `Nur der Turnierleiter ${activeTournament.boss} oder ein Admin kann das Turnier absagen!`, color: '#ffc107' }));
+                            return;
+                        }
+
+                        // Einsatz an alle angemeldeten Spieler zurückzahlen
+                        const refundAmount = activeTournament.bet_amount;
+                        const playersToRefund = [...activeTournament.players];
+                        const tournamentName = `#${activeTournament.id} ${activeTournament.game_type}`;
+
+                        let refundsDone = 0;
+                        if (playersToRefund.length === 0) {
+                            // Keine Spieler, direkt absagen
+                            db.run(`UPDATE tournaments SET status = 'finished' WHERE id = ?`, [activeTournament.id]);
+                            activeTournament = null;
+                            wss.clients.forEach(client => {
+                                if (client.readyState === WebSocket.OPEN) {
+                                    client.send(JSON.stringify({ type: 'chat_broadcast', username: '🤖 Kommentator', message: `🚫 Turnier ${tournamentName} wurde abgesagt! Keine Spieler waren angemeldet.`, color: '#dc3545' }));
+                                }
+                            });
+                            sendGlobalTableAndTournamentUpdate();
+                        } else {
+                            playersToRefund.forEach(playerName => {
+                                db.run(`UPDATE users SET coins = coins + ? WHERE username = ?`, [refundAmount, playerName], () => {
+                                    refundsDone++;
+                                    if (refundsDone === playersToRefund.length) {
+                                        // Alle Rückzahlungen fertig -> Turnier beenden
+                                        db.run(`UPDATE tournaments SET status = 'finished' WHERE id = ?`, [activeTournament.id]);
+                                        activeTournament = null;
+                                        wss.clients.forEach(client => {
+                                            if (client.readyState === WebSocket.OPEN) {
+                                                client.send(JSON.stringify({ type: 'chat_broadcast', username: '🤖 Kommentator', message: `🚫 Turnier ${tournamentName} wurde abgesagt! Alle ${playersToRefund.length} Spieler bekommen ihre ${refundAmount} Coins zurück.`, color: '#dc3545' }));
+                                            }
+                                        });
+                                        sendGlobalTableAndTournamentUpdate();
+                                    }
+                                });
+                            });
+                        }
+                        return;
+                    }
+
+                    // BEFEHL D: TURNIERLEITER ERNENNEN
                     if (msg.startsWith('!tl')) {
                         if (uRole !== 'admin') {
                             ws.send(JSON.stringify({ type: 'chat_broadcast', username: '🤖 Kommentator', message: `Netter Versuch, aber nur der absolute Boss Reiner darf Turnierleiter ernennen!`, color: '#ffc107' }));
@@ -244,7 +286,6 @@ wss.on('connection', (ws) => {
 
                         db.run(`UPDATE users SET role = 'moderator' WHERE username = ?`, [targetUser], function(err) {
                             if (err) return;
-                            
                             wss.clients.forEach(client => {
                                 if (client.readyState === WebSocket.OPEN) {
                                     client.send(JSON.stringify({
@@ -259,7 +300,7 @@ wss.on('connection', (ws) => {
                         return;
                     }
 
-                    // Normale Chat-Nachricht (falls kein Befehl)
+                    // Normale Chat-Nachricht
                     wss.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN) {
                             client.send(JSON.stringify({ type: 'chat_broadcast', username: data.username, message: data.message, color: data.color || '#ffffff' }));
@@ -267,7 +308,6 @@ wss.on('connection', (ws) => {
                     });
                 });
             }
-
 
             if (data.type === 'beg_coins') {
                 db.get(`SELECT coins FROM users WHERE username = ?`, [data.username], (err, row) => {
@@ -323,7 +363,7 @@ wss.on('connection', (ws) => {
                     } else if (t.boss === data.username) { 
                         t.boss = t.players[0] ? t.players[0].username : null; 
                     }
-                    sendGlobalTableAndTournamentUpdate(); // <-- HIER ERSETZT
+                    sendGlobalTableAndTournamentUpdate();
                 }
             }
 
@@ -357,7 +397,7 @@ wss.on('connection', (ws) => {
                                 }
                             });
                         }
-                        sendGlobalTableAndTournamentUpdate(); // <-- HIER ERSETZT
+                        sendGlobalTableAndTournamentUpdate();
                     });
                 });
             }
@@ -390,11 +430,69 @@ wss.on('connection', (ws) => {
                 sendGlobalTableAndTournamentUpdate();
             }
 
+            // ==========================================
+            // NEU: TURNIER BEITRETEN
+            // ==========================================
+            if (data.type === 'join_tournament') {
+                if (!activeTournament || activeTournament.status !== 'Anmeldung') {
+                    ws.send(JSON.stringify({ 
+                        type: 'chat_broadcast', 
+                        username: '🤖 Kommentator', 
+                        message: `Kein offenes Turnier zur Anmeldung!`, 
+                        color: '#ffc107' 
+                    }));
+                    return;
+                }
+
+                if (activeTournament.players.includes(data.username)) {
+                    ws.send(JSON.stringify({ 
+                        type: 'chat_broadcast', 
+                        username: '🤖 Kommentator', 
+                        message: `${data.username}, du bist schon angemeldet!`, 
+                        color: '#ffc107' 
+                    }));
+                    return;
+                }
+
+                db.get(`SELECT coins FROM users WHERE username = ?`, [data.username], (err, row) => {
+                    if (err || !row) return;
+                    if (row.coins < activeTournament.bet_amount) {
+                        ws.send(JSON.stringify({ 
+                            type: 'chat_broadcast', 
+                            username: '🤖 Kommentator', 
+                            message: `${data.username}, du hast nicht genug Coins! (Einsatz: ${activeTournament.bet_amount})`, 
+                            color: '#ffc107' 
+                        }));
+                        return;
+                    }
+
+                    const newCoins = row.coins - activeTournament.bet_amount;
+                    db.run(`UPDATE users SET coins = ? WHERE username = ?`, [newCoins, data.username], () => {
+                        ws.send(JSON.stringify({ type: 'beg_success', coins: newCoins }));
+                        activeTournament.players.push(data.username);
+                        saveTournamentToDatabase();
+
+                        wss.clients.forEach(client => {
+                            if (client.readyState === WebSocket.OPEN) {
+                                client.send(JSON.stringify({ 
+                                    type: 'chat_broadcast', 
+                                    username: '🤖 Kommentator', 
+                                    message: `🏆 ${data.username} hat sich für das Turnier angemeldet! Bisher ${activeTournament.players.length} Teilnehmer.`, 
+                                    color: '#ffc107' 
+                                }));
+                            }
+                        });
+                        sendGlobalTableAndTournamentUpdate();
+                    });
+                });
+            }
+
         } catch (err) { console.error('WebSocket Fehler:', err.message); }
     });
     
     ws.on('close', () => { console.log('Verbindung getrennt.'); });
 });
+
 function sendGlobalTableAndTournamentUpdate() {
     const tourneyList = activeTournament ? [activeTournament] : [];
     const payload = JSON.stringify({
@@ -406,7 +504,7 @@ function sendGlobalTableAndTournamentUpdate() {
         if (client.readyState === WebSocket.OPEN) client.send(payload);
     });
 }
-// Hilfsfunktion: Sichert das aktuelle Turnier absolut crash-sicher in der SQLite-DB
+
 function saveTournamentToDatabase() {
     if (!activeTournament) return;
     
@@ -419,7 +517,6 @@ function saveTournamentToDatabase() {
         payouts: activeTournament.payouts
     });
 
-    // Prüfen, ob das Turnier schon in der DB existiert (INSERT oder UPDATE)
     db.get(`SELECT id FROM tournaments WHERE id = ?`, [activeTournament.id], (err, row) => {
         if (row) {
             db.run(`UPDATE tournaments SET status = ?, bracket_data = ? WHERE id = ?`, [activeTournament.status, bracketData, activeTournament.id]);
