@@ -14,7 +14,11 @@
             <div class="user-name" id="lobby-username" onclick="openModal('login-view')">
                 <span id="crown-icon" style="display:none;">👑</span> <span id="player-name">🔑 Einloggen / Registrieren</span>
             </div>
-            <div class="user-coins" id="coin-bar" style="display: none;">💰 <span id="player-coins">0</span> Coins (<span id="player-title">Frischling</span>)</div>
+            <div class="user-coins" id="coin-bar" style="display: none;">
+                💰 <span id="player-coins">0</span> Coins (<span id="player-title">Frischling</span>)
+                &nbsp;|&nbsp;
+                <span onclick="logout()" style="cursor:pointer; color:#dc3545; font-size:0.85rem;">Ausloggen 🚪</span>
+            </div>
         </div>
         <button class="btn-create" onclick="openCreateTableModal()">Neu ➕</button>
     </header>
@@ -86,7 +90,7 @@
                     <p style="font-size:0.85rem; color:#aaa; margin-bottom:8px;">Tisch bereit! Lade deine Freunde ein:</p>
                     <a id="whatsapp-btn" href="#" target="_blank" style="background:#25D366; color:white; padding:10px 15px; border-radius:8px; text-decoration:none; font-weight:bold; display:inline-block;">📱 Über WhatsApp einladen</a>
                 </div>
-   		  <div class="form-group">
+                <div class="form-group">
                     <label>Spieleranzahl (2 - 8)</label>
                     <select id="create-max-players">
                         <option value="2">2 Spieler (Duell)</option>
